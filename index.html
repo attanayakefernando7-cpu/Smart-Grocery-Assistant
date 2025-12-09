@@ -1,0 +1,308 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>AI Grocery Assistant — Demo UI</title>
+
+  <!-- Bootstrap 5 CSS -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+
+  <style>
+    body { background: #f7fafc; }
+    .app-card { max-width: 980px; margin: 28px auto; }
+    .list-item { display:flex; align-items:center; justify-content:space-between; gap:10px; }
+    .muted { color:#6c757d; font-size:.9rem; }
+    .result-pill { font-weight:600; padding:.35rem .6rem; border-radius:999px; background:#e9f7ef; color:#0b6623; }
+    .error { color:#b02a37; }
+    .spinner-inline { width:1rem; height:1rem; border:2px solid #ccc; border-top-color:#0d6efd; border-radius:50%; display:inline-block; animation: spin 0.8s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+  <div class="container app-card">
+    <div class="card shadow-sm">
+      <div class="card-body">
+        <div class="d-flex align-items-center mb-3">
+          <img src="https://img.icons8.com/color/48/000000/grocery-bag.png" alt="grocery" width="44" class="me-3">
+          <div>
+            <h4 class="mb-0">AI Grocery Assistant</h4>
+            <small class="muted">Predict categories, suggest healthy alternatives, and find missing items</small>
+          </div>
+        </div>
+
+        <!-- Item Analyzer -->
+        <div class="row g-3 mb-4">
+          <div class="col-md-8">
+            <input id="itemInput" class="form-control" placeholder="Type an item to analyze (eg. 'strawberry yogurt')" />
+          </div>
+          <div class="col-md-4 d-flex gap-2">
+            <button id="analyzeBtn" class="btn btn-primary w-100">Analyze Item</button>
+            <button id="healthyBtn" class="btn btn-outline-success w-100">Healthy Alt</button>
+          </div>
+          <div class="col-12">
+            <div id="analyzeResult" class="p-3 border rounded bg-white" style="min-height:60px;">
+              <div class="muted">Results will appear here.</div>
+            </div>
+          </div>
+        </div>
+
+        <hr>
+
+        <!-- Grocery List Manager -->
+        <div class="row g-3 mb-3">
+          <div class="col-md-8">
+            <input id="listItemInput" class="form-control" placeholder="Add item to grocery list (eg. rice)" />
+          </div>
+          <div class="col-md-4 d-flex gap-2">
+            <button id="addToListBtn" class="btn btn-secondary w-100">Add to List</button>
+            <button id="clearListBtn" class="btn btn-outline-danger w-100">Clear</button>
+          </div>
+
+          <div class="col-12">
+            <div class="card p-3" id="groceryListCard">
+              <div class="d-flex justify-content-between align-items-center mb-2">
+                <strong>Your Grocery List</strong>
+                <small class="muted">Saved to local storage</small>
+              </div>
+              <ul id="groceryList" class="list-group list-group-flush"></ul>
+
+              <div class="mt-3 d-flex gap-2">
+                <button id="missingBtn" class="btn btn-outline-primary">Predict Missing Items</button>
+                <button id="sendToServerBtn" class="btn btn-outline-secondary">Send List to Server (debug)</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="col-12 mt-3">
+            <div id="missingResult" class="p-3 border rounded bg-white" style="min-height:60px;">
+              <div class="muted">Missing items & suggestions will appear here.</div>
+            </div>
+          </div>
+        </div>
+
+        <hr>
+
+        <!-- Repurchase Suggestions -->
+        <div class="row g-3 mb-3">
+          <div class="col-12">
+            <div class="card p-3" id="repurchaseCard">
+              <div class="d-flex justify-content-between align-items-center mb-2">
+                <strong>Repurchase Suggestions</strong>
+                <button id="repurchaseBtn" class="btn btn-outline-warning btn-sm">Check Suggestions</button>
+              </div>
+              <div id="repurchaseResult" class="mt-2">
+                <div class="muted">Items you might need to buy again will appear here.</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <hr>
+
+        
+
+      
+    </div>
+  </div>
+
+  <!-- Bootstrap + Popper + JS -->
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+
+  <script>
+    const storageKey = "grocery_assistant_list_v1";
+    let groceryList = JSON.parse(localStorage.getItem(storageKey) || "[]");
+
+    const $groceryList = document.getElementById("groceryList");
+    const $listItemInput = document.getElementById("listItemInput");
+    const $itemInput = document.getElementById("itemInput");
+    const $analyzeResult = document.getElementById("analyzeResult");
+    const $missingResult = document.getElementById("missingResult");
+    const $repurchaseResult = document.getElementById("repurchaseResult");
+
+    function spinnerHTML() {
+      return '<span class="spinner-inline me-2" aria-hidden="true"></span>loading...';
+    }
+
+    function renderList() {
+      $groceryList.innerHTML = "";
+      if (groceryList.length === 0) {
+        $groceryList.innerHTML = '<li class="list-group-item muted">Your list is empty</li>';
+        return;
+      }
+      groceryList.forEach((it, idx) => {
+        const li = document.createElement("li");
+        li.className = "list-group-item list-item";
+        li.innerHTML = `
+          <div><strong>${escapeHtml(it)}</strong> <small class="muted ms-2">#${idx+1}</small></div>
+          <div>
+            <button class="btn btn-sm btn-outline-danger me-1" data-idx="${idx}" onclick="removeFromList(event)">Remove</button>
+            <button class="btn btn-sm btn-outline-primary" data-idx="${idx}" onclick="copyToInput(event)">Edit</button>
+          </div>`;
+        $groceryList.appendChild(li);
+      });
+    }
+
+    function removeFromList(e) {
+      const idx = Number(e.currentTarget.dataset.idx);
+      groceryList.splice(idx, 1);
+      saveList();
+      renderList();
+    }
+    function copyToInput(e) {
+      const idx = Number(e.currentTarget.dataset.idx);
+      $listItemInput.value = groceryList[idx];
+      $listItemInput.focus();
+    }
+
+    function saveList() {
+      localStorage.setItem(storageKey, JSON.stringify(groceryList));
+    }
+
+    function escapeHtml(s) {
+      return String(s).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[m]);
+    }
+
+    function apiUrl(path) {
+      const baseUrl = "http://localhost:8000";
+      return `${baseUrl}${path}`;
+    }
+
+    async function postJson(path, body) {
+      const url = apiUrl(path);
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) {
+        const text = await res.text().catch(()=>"");
+        throw new Error(`Server returned ${res.status}: ${text || res.statusText}`);
+      }
+      return res.json();
+    }
+
+    // -------- Button actions --------
+    document.getElementById("addToListBtn").addEventListener("click", () => {
+      const v = $listItemInput.value.trim();
+      if (!v) return;
+      groceryList.push(v);
+      $listItemInput.value = "";
+      saveList();
+      renderList();
+    });
+
+    document.getElementById("clearListBtn").addEventListener("click", () => {
+      if (!confirm("Clear your grocery list?")) return;
+      groceryList = [];
+      saveList();
+      renderList();
+      $missingResult.innerHTML = '<div class="muted">Missing items & suggestions will appear here.</div>';
+    });
+
+    document.getElementById("missingBtn").addEventListener("click", async () => {
+      if (groceryList.length === 0) {
+        $missingResult.innerHTML = '<div class="muted">Add items to your list first.</div>';
+        return;
+      }
+      $missingResult.innerHTML = spinnerHTML();
+      try {
+        const payload = { items: groceryList };
+        const data = await postJson("/missing-items", payload);
+        const missing = Array.isArray(data) ? data : (data.missing_items || []);
+        if (missing.length === 0) {
+          $missingResult.innerHTML = '<div class="muted">No missing items found.</div>';
+        } else {
+          $missingResult.innerHTML = missing.map(i => `<span class="badge bg-light text-dark me-1">${escapeHtml(i)}</span>`).join("");
+          Array.from($missingResult.querySelectorAll("span.badge")).forEach(el=>{
+            el.style.cursor = "pointer";
+            el.addEventListener("click", () => {
+              groceryList.push(el.textContent);
+              saveList();
+              renderList();
+            });
+          });
+        }
+      } catch (err) {
+        $missingResult.innerHTML = `<div class="error">Error: ${escapeHtml(err.message)}</div>`;
+      }
+    });
+
+    document.getElementById("sendToServerBtn").addEventListener("click", async () => {
+      $missingResult.innerHTML = spinnerHTML();
+      try {
+        const data = await postJson("/missing-items", { items: groceryList });
+        $missingResult.innerHTML = `<pre class="small">${escapeHtml(JSON.stringify(data, null, 2))}</pre>`;
+      } catch (err) {
+        $missingResult.innerHTML = `<div class="error">Error: ${escapeHtml(err.message)}</div>`;
+      }
+    });
+
+    document.getElementById("analyzeBtn").addEventListener("click", async () => {
+      const text = $itemInput.value.trim();
+      if (!text) return;
+      $analyzeResult.innerHTML = spinnerHTML();
+      try {
+        const data = await postJson("/analyze-item", { item: text });
+        const category = data.category || "—";
+        const alt = data.healthy_alternative || "No healthy alternative found";
+        $analyzeResult.innerHTML = `
+          <div><strong>${escapeHtml(text)}</strong></div>
+          <div class="mt-2">Category: <span class="result-pill">${escapeHtml(category)}</span></div>
+          <div class="mt-2">Healthy alternative: <em>${escapeHtml(alt)}</em></div>
+          <div class="mt-3"><button class="btn btn-sm btn-outline-success" id="addThisBtn">Add to grocery list</button></div>
+        `;
+        document.getElementById("addThisBtn").addEventListener("click", () => {
+          groceryList.push(text);
+          saveList();
+          renderList();
+        });
+      } catch (err) {
+        $analyzeResult.innerHTML = `<div class="error">Error: ${escapeHtml(err.message)}</div>`;
+      }
+    });
+
+    document.getElementById("healthyBtn").addEventListener("click", async () => {
+      const text = $itemInput.value.trim();
+      if (!text) return;
+      $analyzeResult.innerHTML = spinnerHTML();
+      try {
+        const data = await postJson("/healthy", { item: text });
+        const alt = data.alternative || "No healthy alternative found";
+        $analyzeResult.innerHTML = `<div><strong>${escapeHtml(text)}</strong> — Healthy alternative: <em>${escapeHtml(alt)}</em></div>`;
+      } catch (err) {
+        $analyzeResult.innerHTML = `<div class="error">Error: ${escapeHtml(err.message)}</div>`;
+      }
+    });
+
+    // -------- Repurchase Suggestions --------
+    document.getElementById("repurchaseBtn").addEventListener("click", async () => {
+      $repurchaseResult.innerHTML = spinnerHTML();
+      try {
+        const data = await postJson("/repurchase-suggestions", { items: groceryList });
+        const items = data.repurchase_suggestions || [];
+        if (items.length === 0) {
+          $repurchaseResult.innerHTML = '<div class="muted">No repurchase suggestions at the moment.</div>';
+        } else {
+          $repurchaseResult.innerHTML = items.map(i => `<span class="badge bg-light text-dark me-1">${escapeHtml(i)}</span>`).join("");
+          Array.from($repurchaseResult.querySelectorAll("span.badge")).forEach(el => {
+            el.style.cursor = "pointer";
+            el.addEventListener("click", () => {
+              groceryList.push(el.textContent);
+              saveList();
+              renderList();
+            });
+          });
+        }
+      } catch (err) {
+        $repurchaseResult.innerHTML = `<div class="error">Error: ${escapeHtml(err.message)}</div>`;
+      }
+    });
+
+    // -------- Init --------
+    renderList();
+    $listItemInput.addEventListener("keydown", e => { if(e.key==="Enter") document.getElementById("addToListBtn").click(); });
+    $itemInput.addEventListener("keydown", e => { if(e.key==="Enter") document.getElementById("analyzeBtn").click(); });
+  </script>
+</body>
+</html>

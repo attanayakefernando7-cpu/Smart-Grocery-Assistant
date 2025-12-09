@@ -1,0 +1,15 @@
+Step 1 — Create venv
+python -m venv venv
+
+Step 2 — Activate venv
+.\venv\Scripts\Activate.ps1
+
+pip install -r requirements.txt
+
+
+Step 3 — Install packages
+pip install fastapi uvicorn transformers torch scikit-learn pandas numpy scipy sentence-transformers
+
+
+Step 4 — Run server
+uvicorn main:app --reload
